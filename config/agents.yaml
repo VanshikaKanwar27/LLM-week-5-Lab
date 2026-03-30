@@ -1,0 +1,30 @@
+from crewai import Agent
+
+# 1. The Researcher: Finds the data in your JSON files
+researcher = Agent(
+    role='Yelp Data Researcher',
+    goal='Retrieve profile history for user {user_id} and business details for item {item_id}',
+    backstory=(
+        "You are an expert at navigating large JSON datasets. Your job is to extract "
+        "the user's average star rating, their previous review style, and the "
+        "restaurant's categories and attributes."
+    ),
+    tools=[user_tool, item_tool, review_tool], # Uses the tools we set up earlier
+    verbose=True,
+    allow_delegation=False,
+    llm="ollama/phi3"
+)
+
+# 2. The Analyst: Makes the actual prediction
+analyst = Agent(
+    role='Rating Prediction Specialist',
+    goal='Accurately predict the star rating and write a realistic review text.',
+    backstory=(
+        "You are a behavioral analyst who understands consumer habits. You take the "
+        "raw data from the Researcher and determine how likely a specific user is "
+        "to enjoy a specific type of restaurant based on their history."
+    ),
+    verbose=True,
+    allow_delegation=False,
+    llm="ollama/phi3"
+)

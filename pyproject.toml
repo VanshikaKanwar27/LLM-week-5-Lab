@@ -1,0 +1,19 @@
+[project]
+name = "agent-review"
+version = "0.1.0"
+description = "Yelp Rating Prediction Lab"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "crewai",
+    "crewai-tools",
+    "langchain-community",
+    "sentence-transformers",
+    "python-dotenv",
+]
+
+# ADD THIS PART BELOW:
+[tool.uv]
+required-environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'"
+]

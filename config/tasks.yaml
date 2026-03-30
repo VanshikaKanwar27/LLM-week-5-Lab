@@ -1,0 +1,28 @@
+from crewai import Task
+
+# Task 1: Data Gathering
+research_task = Task(
+    description=(
+        "Use your tools to find all available information for user {user_id} "
+        "and restaurant {item_id}. Look for patterns in the user's past reviews "
+        "and compare them to the restaurant's features (e.g., price range, cuisine)."
+    ),
+    expected_output="A comprehensive data summary of the user and the item.",
+    agent=researcher
+)
+
+# Task 2: Prediction & Review Writing
+prediction_task = Task(
+    description=(
+        "Analyze the research provided. Predict the star rating (1.0 to 5.0) "
+        "this user would give this restaurant. Then, write a 2-3 sentence review "
+        "in the style of that user."
+    ),
+    expected_output='''A strictly formatted JSON object:
+    {{
+        "stars": 4.0,
+        "review": "The food was great but the service was slow."
+    }}''',
+    agent=analyst,
+    context=[research_task] # This ensures the Analyst sees the Researcher's work
+)
