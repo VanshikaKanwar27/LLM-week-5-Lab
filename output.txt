@@ -159,4 +159,15 @@
     "I have been using this tool for a while and has consistently provided accurate results. The user profile information is very helpful when searching but the search feature seems to be more reliable. The best feature of the tool is its ability to personalize the search by storing your preferences across different searches, making it easier to find the desired item. However, I am experiencing some lag issues on mobile devices which prevents me from using this tool for certain queries."
   ]
 }
-╭──────────────────────────── Trace Batch Finalization 
+╭──────────────────────────── Trace Batch Finalization ────────────────────────────╮
+│ ✅ Trace batch finalized with session ID: e11deac9-87f5-4bf1-988d-a44a9a0d4d07   │
+│                                                                                  │
+│ 🔗 View here:                       │
+/e11deac9-87f5-4bf1-98 │      
+│ 8d-a44a9a0d4d07?access_code=TRACE-fceb187bbd              
+                       │      
+│ 🔑 Access Code: TRACE-fceb187bbd                          
+                       │      
+╰─────────────────────────────────────────────────────────────────────   
+
+
