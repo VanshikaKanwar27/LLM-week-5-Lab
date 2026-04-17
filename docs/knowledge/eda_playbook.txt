@@ -1,0 +1,36 @@
+Exploratory Data Analysis (EDA) playbook for Yelp rating prediction
+
+1. Start with base rates.
+Look at the user's overall historical star tendencies before focusing on the target item.
+Check whether the user is generally generous, harsh, or highly variable.
+
+2. Compare user preferences to item characteristics.
+Match review language, categories, price tier, service style, and useful attributes.
+The best prediction signals usually come from overlap between the user's prior positive reviews and the target business profile.
+
+3. Check recency and consistency.
+Recent reviews often reveal stronger preferences than very old ones.
+If the user has inconsistent ratings across similar businesses, prediction confidence should be lower.
+
+4. Watch for sparse data.
+If the user or the business has limited evidence in the local subset, say so explicitly.
+Low data coverage should reduce confidence and produce a shorter, more conservative explanation.
+
+5. Look for contradictory signals.
+A user may like a cuisine but dislike noisy venues, weak service, or poor value.
+Strong categories alone are not enough if attributes suggest a mismatch.
+
+6. Distinguish evidence from inference.
+Grounding comes from exact user, item, and review records.
+Inference is the crew's explanation of why those records imply a likely rating.
+Never present inference as if it were directly observed.
+
+7. Summarize EDA findings clearly.
+A good EDA summary explains:
+- the user's baseline rating tendency
+- the strongest matching features
+- the biggest mismatch or risk
+- the confidence level and why
+
+8. Keep prediction outputs operational.
+The final answer should be strict JSON, with a realistic short review and a compact explanation of the predictive signals.

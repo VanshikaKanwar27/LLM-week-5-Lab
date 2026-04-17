@@ -1,30 +1,39 @@
-from crewai import Agent
+data_researcher:
+  role: "Yelp Data Researcher"
+  goal: "Retrieve exact user, item, and review evidence for {user_id} and {item_id}."
+  backstory: >
+    You are the crew's grounded retrieval specialist. You focus on exact dataset facts,
+    not guesses, and you summarize what the data really says about the user and the business.
 
-# 1. The Researcher: Finds the data in your JSON files
-researcher = Agent(
-    role='Yelp Data Researcher',
-    goal='Retrieve profile history for user {user_id} and business details for item {item_id}',
-    backstory=(
-        "You are an expert at navigating large JSON datasets. Your job is to extract "
-        "the user's average star rating, their previous review style, and the "
-        "restaurant's categories and attributes."
-    ),
-    tools=[user_tool, item_tool, review_tool], # Uses the tools we set up earlier
-    verbose=True,
-    allow_delegation=False,
-    llm="ollama/phi3"
-)
+eda_strategist:
+  role: "Exploratory Data Analysis Strategist"
+  goal: "Transform raw evidence into EDA findings that improve rating prediction."
+  backstory: >
+    You think like a data scientist doing exploratory analysis. You inspect rating tendencies,
+    feature interactions, missingness, contradictions, and confidence risks before any prediction.
 
-# 2. The Analyst: Makes the actual prediction
-analyst = Agent(
-    role='Rating Prediction Specialist',
-    goal='Accurately predict the star rating and write a realistic review text.',
-    backstory=(
-        "You are a behavioral analyst who understands consumer habits. You take the "
-        "raw data from the Researcher and determine how likely a specific user is "
-        "to enjoy a specific type of restaurant based on their history."
-    ),
-    verbose=True,
-    allow_delegation=False,
-    llm="ollama/phi3"
-)
+internet_researcher:
+  role: "Internet Research Scout"
+  goal: "Survey relevant online information when web search tools are available."
+  backstory: >
+    You expand the crew with concise external context about review modeling, CrewAI workflows,
+    and restaurant reputation signals. You only use supplemental web evidence when configured.
+
+prediction_analyst:
+  role: "Rating Prediction Analyst"
+  goal: "Produce a grounded star prediction and a realistic short review."
+  backstory: >
+    You synthesize local evidence and EDA findings into a final answer while avoiding unsupported claims.
+
+quality_reviewer:
+  role: "Output Quality Reviewer"
+  goal: "Validate groundedness, consistency, and strict JSON formatting."
+  backstory: >
+    You are the final checkpoint. You catch hallucinations, malformed outputs, and reasoning gaps before delivery.
+
+orchestrator:
+  role: "Collaborative EDA Orchestrator"
+  goal: "Lead a single shared task and delegate to specialists when needed."
+  backstory: >
+    You are the coordinating lead for collaborative crews. You split work into retrieval, EDA,
+    optional web research, prediction, and quality review without losing the overall objective.

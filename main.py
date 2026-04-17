@@ -1,72 +1,56 @@
-import os
-from crewai import Agent, Task, Crew
-from crewai_tools import JSONSearchTool
+from __future__ import annotations
 
-# 1. Environment Configuration - CHANGED TO LLAMA 3.2:1B
-os.environ["OPENAI_API_KEY"] = "NA"
-os.environ["MODEL"] = "ollama/llama3.2:1b"
+from pathlib import Path
 
-# 2. Configure the RAG Tools
-rag_config = {
-    "embedding_model": {
-        "provider": "sentence-transformer",
-        "config": {"model_name": "BAAI/bge-small-en-v1.5"}
-    }
-}
-
-# Ensure these paths match your folder structure exactly!
-user_tool = JSONSearchTool(json_path='data/user_subset.json', config=rag_config, name="user_search")
-item_tool = JSONSearchTool(json_path='data/item_subset.json', config=rag_config, name="item_search")
-review_tool = JSONSearchTool(json_path='data/review_subset.json', config=rag_config, name="review_search")
-
-# 3. Define the Agents - UPDATED LLM TO LLAMA 3.2:1B
-researcher = Agent(
-    role='Yelp Data Researcher',
-    goal='Retrieve profile for user {user_id} and details for item {item_id}',
-    backstory='Expert at finding specific data points in large Yelp datasets.',
-    tools=[user_tool, item_tool, review_tool],
-    verbose=True,
-    llm="ollama/llama3.2:1b"
+from lab_project import (
+    build_fallback_payload,
+    build_parser,
+    build_selected_crew,
+    compact_json,
+    finalize_payload,
+    generate_deterministic_payload,
+    normalize_result,
+    write_report,
 )
 
-analyst = Agent(
-    role='Rating Prediction Analyst',
-    goal='Predict the star rating and write a review for the user-item pair.',
-    backstory='Specializes in predicting user satisfaction based on historical data.',
-    verbose=True,
-    llm="ollama/llama3.2:1b"
-)
 
-# 4. Define the Tasks
-research_task = Task(
-    description='Search for user {user_id} and item {item_id}. Summarize their history and features.',
-    expected_output='A summary of user preferences and item attributes.',
-    agent=researcher
-)
+def main() -> int:
+    try:
+        args = build_parser("Run the CrewAI Yelp lab with JSON knowledge and review RAG.").parse_args()
+        if args.engine == "deterministic":
+            payload = generate_deterministic_payload(args.user_id, args.item_id)
+        else:
+            crew = build_selected_crew(args.crew, model=args.model, verbose=not args.quiet)
+            result = crew.kickoff(inputs={"user_id": args.user_id, "item_id": args.item_id})
+            try:
+                payload = normalize_result(result)
+            except Exception:
+                payload = build_fallback_payload(args.user_id, args.item_id)
+            payload = finalize_payload(payload, args.user_id, args.item_id)
 
-prediction_task = Task(
-    description='Based on the research, predict the stars (1-5) and write a realistic review.',
-    expected_output='A JSON object with "stars" and "review" keys.',
-    agent=analyst,
-    context=[research_task]
-)
+        output_path = Path(args.output).resolve()
+        write_report(payload, output_path)
 
-# 5. Execute the Crew
+        print(compact_json(payload))
+        print(f"Saved report to: {output_path}")
+        return 0
+    except Exception as exc:
+        message = str(exc)
+        if "OPENAI_API_KEY is required" in message:
+            print("Startup error: the selected model requires OPENAI_API_KEY. Set it in your environment or switch to a provider like Groq with --model.")
+            return 1
+        if "GROQ_API_KEY" in message or "groq" in message.lower() and "api key" in message.lower():
+            print("Startup error: the selected Groq model requires GROQ_API_KEY. Set it in your environment and try again.")
+            return 1
+        if "COHERE_API_KEY" in message:
+            print("Startup error: COHERE_API_KEY is missing. Add it only if you want Cohere-backed knowledge or semantic RAG.")
+            return 1
+        if "last_raw_response.txt" in message:
+            print(f"Startup error: {message}")
+            return 1
+        print(f"Startup error: {message}")
+        return 1
+
+
 if __name__ == "__main__":
-    yelp_crew = Crew(
-        agents=[researcher, analyst],
-        tasks=[research_task, prediction_task],
-        verbose=True,
-        memory=False # Keep this False to save data/bandwidth
-    )
-
-    inputs = {
-        "user_id": "LQUk3WFBgEfwIYkNDh5l1Q",
-        "item_id": "KueYmi7Vrr0Hyt0_iIux4Q"
-    }
-
-    print(f"### Starting Prediction for User: {inputs['user_id']} ###")
-    result = yelp_crew.kickoff(inputs=inputs)
-    
-    print("\n--- FINAL LAB RESULT ---")
-    print(result)
+    raise SystemExit(main())

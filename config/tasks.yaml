@@ -1,28 +1,46 @@
-from crewai import Task
+baseline_research_task:
+  description: >
+    Retrieve exact evidence for user {user_id} and item {item_id}. Summarize the user profile,
+    business attributes, and representative historical reviews.
+  expected_output: "A grounded evidence summary."
 
-# Task 1: Data Gathering
-research_task = Task(
-    description=(
-        "Use your tools to find all available information for user {user_id} "
-        "and restaurant {item_id}. Look for patterns in the user's past reviews "
-        "and compare them to the restaurant's features (e.g., price range, cuisine)."
-    ),
-    expected_output="A comprehensive data summary of the user and the item.",
-    agent=researcher
-)
+baseline_eda_task:
+  description: >
+    Apply exploratory data analysis reasoning to identify rating drivers, mismatches, recent trends,
+    and confidence risks for this user-item pair.
+  expected_output: "An EDA summary of the strongest predictive signals and caveats."
 
-# Task 2: Prediction & Review Writing
-prediction_task = Task(
-    description=(
-        "Analyze the research provided. Predict the star rating (1.0 to 5.0) "
-        "this user would give this restaurant. Then, write a 2-3 sentence review "
-        "in the style of that user."
-    ),
-    expected_output='''A strictly formatted JSON object:
-    {{
-        "stars": 4.0,
-        "review": "The food was great but the service was slow."
-    }}''',
-    agent=analyst,
-    context=[research_task] # This ensures the Analyst sees the Researcher's work
-)
+baseline_prediction_task:
+  description: >
+    Produce final strict JSON with keys stars, review, and eda_summary using only the prior evidence.
+  expected_output: >
+    {"stars": 4.0, "review": "Grounded short review.", "eda_summary": "Concise explanation of the predictive signals."}
+
+collaborative_single_task:
+  description: >
+    Pattern 2: Collaborative Single Task. Own the full job for user {user_id} and item {item_id},
+    delegate sub-work to specialists, and merge the final result into strict JSON.
+  expected_output: >
+    {"stars": 4.0, "review": "Grounded short review.", "eda_summary": "Concise explanation of the predictive signals."}
+
+hierarchical_research_task:
+  description: >
+    Retrieve exact user, item, and review evidence for the target pair and package it for downstream analysis.
+  expected_output: "A grounded evidence brief."
+
+hierarchical_eda_task:
+  description: >
+    Perform EDA on the retrieved evidence and identify the main predictive signals, risks, and contradictions.
+  expected_output: "An EDA memo with predictive drivers and caveats."
+
+hierarchical_prediction_task:
+  description: >
+    Predict the star rating and draft a short review using only the evidence and EDA memo.
+  expected_output: >
+    {"stars": 4.0, "review": "Grounded short review."}
+
+hierarchical_quality_task:
+  description: >
+    Validate the final output, fix any grounding or formatting issues, and return strict JSON with eda_summary included.
+  expected_output: >
+    {"stars": 4.0, "review": "Grounded short review.", "eda_summary": "Concise explanation of the predictive signals."}

@@ -1,70 +1,30 @@
-import os
-from crewai import Agent, Crew, Process, Task
-from crewai.project import CrewBase, agent, crew, task
-from crewai_tools import JSONSearchTool
+from __future__ import annotations
 
-# 1. Setup Environment (Matching your Guide)
-os.environ["OPENAI_API_KEY"] = "NA"
-os.environ["MODEL"] = "ollama/phi3"
+from lab_project import build_parser, build_selected_crew, compact_json
 
-@CrewBase
-class AgentReviewCrew():
-    """Yelp Review Prediction Crew"""
-    agents_config = 'config/agents.yaml'
-    tasks_config = 'config/tasks.yaml'
 
-    # 2. Tool Configuration (RAG for JSON)
-    # This config ensures we use local CPU for embeddings to avoid API keys
-    rag_config = {
-        "embedding_model": {
-            "provider": "sentence-transformer",
-            "config": {"model_name": "BAAI/bge-small-en-v1.5"}
-        }
-    }
+def main() -> int:
+    try:
+        args = build_parser("Run any CrewAI lab topology for the Yelp rating project.").parse_args()
+        crew = build_selected_crew(args.crew, model=args.model, verbose=not args.quiet)
+        result = crew.kickoff(inputs={"user_id": args.user_id, "item_id": args.item_id})
+        payload = getattr(result, "raw", result)
+        print(payload if isinstance(payload, str) else compact_json(payload))
+        return 0
+    except Exception as exc:
+        message = str(exc)
+        if "OPENAI_API_KEY is required" in message:
+            print("Startup error: the selected model requires OPENAI_API_KEY. Set it in your environment or switch to a provider like Groq with --model.")
+            return 1
+        if "GROQ_API_KEY" in message or "groq" in message.lower() and "api key" in message.lower():
+            print("Startup error: the selected Groq model requires GROQ_API_KEY. Set it in your environment and try again.")
+            return 1
+        if "COHERE_API_KEY" in message:
+            print("Startup error: COHERE_API_KEY is missing. Add it only if you want Cohere-backed knowledge or semantic RAG.")
+            return 1
+        print(f"Startup error: {message}")
+        return 1
 
-    # Define the 3 RAG tools for the 3 datasets
-    user_tool = JSONSearchTool(json_path='data/user_subset.json', config=rag_config)
-    item_tool = JSONSearchTool(json_path='data/item_subset.json', config=rag_config)
-    review_tool = JSONSearchTool(json_path='data/review_subset.json', config=rag_config)
 
-    # 3. Agents Definition
-    @agent
-    def researcher(self) -> Agent:
-        return Agent(
-            config=self.agents_config['researcher'], # type: ignore
-            tools=[self.user_tool, self.item_tool, self.review_tool],
-            verbose=True,
-            llm="ollama/phi3"
-        )
-
-    @agent
-    def reporting_analyst(self) -> Agent:
-        return Agent(
-            config=self.agents_config['reporting_analyst'], # type: ignore
-            verbose=True,
-            llm="ollama/phi3"
-        )
-
-    # 4. Tasks Definition
-    @task
-    def research_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['research_task'], # type: ignore
-        )
-
-    @task
-    def reporting_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['reporting_task'], # type: ignore
-            output_file='report.md'
-        )
-
-    @crew
-    def crew(self) -> Crew:
-        """Creates the AgentReview crew"""
-        return Crew(
-            agents=self.agents, # type: ignore
-            tasks=self.tasks, # type: ignore
-            process=Process.sequential,
-            verbose=True,
-        )
+if __name__ == "__main__":
+    raise SystemExit(main())

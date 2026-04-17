@@ -1,86 +1,116 @@
-# **Yelp AgentSociety: Predictive Rating System**
+# CrewAI Lab: Knowledge + Review RAG
 
-## 
+This project is now aligned to the lab brief in a runtime-stable way:
 
+- `subset_user.jsonl` and `subset_item.jsonl` are used through dedicated grounding tools
+- `subset_review.jsonl` is queried through semantic RAG when available, with a local fallback retriever otherwise
+- the crew includes stronger EDA-focused agents
+- all requested crew organizations are included:
+  - baseline `Process.sequential`
+  - collaborative single-task `Process.sequential`
+  - `Process.hierarchical`
 
+## Core Design
 
-### Framework: CrewAI \& Ollama (Qwen2.5:7b)
+The shared implementation lives in [lab_project.py](C:/Users/vansh/OneDrive/Desktop/AgentReview/lab_project.py).
 
+Data flow:
 
+1. `subset_user.jsonl` and `subset_item.jsonl` are accessed through exact lookup tools for stable grounding.
+2. `subset_review.jsonl` is converted into a smaller review corpus and indexed by `semantic_review_rag` when embeddings are available.
+3. Agents combine:
+   - exact user/item lookup tools for reliable grounding
+   - semantic review retrieval for analogous review evidence
+   - local review search as an automatic fallback if Cohere or Chroma is unavailable
+4. Final output is written to [report.json](C:/Users/vansh/OneDrive/Desktop/AgentReview/report.json).
 
-### Project Overview
+## Agents
 
+- `Knowledge Grounding Researcher`
+- `Exploratory Data Analysis Strategist`
+- `Rating Prediction Analyst`
+- `Output Quality Reviewer`
+- `Collaborative EDA Orchestrator`
+- `Internet Research Scout` when `SERPER_API_KEY` is configured
 
+Extra EDA knowledge lives in:
 
-This repository contains a deterministic data analysis pipeline built with CrewAI and powered by a local instance of the Qwen2.5:7b model via Ollama. The system is designed to perform high-precision profiling and rating prediction on Yelp datasets while strictly adhering to a grounded execution loop.
+- [docs/knowledge/eda_playbook.txt](C:/Users/vansh/OneDrive/Desktop/AgentReview/docs/knowledge/eda_playbook.txt)
+- [docs/knowledge/crewai_coding_skills.txt](C:/Users/vansh/OneDrive/Desktop/AgentReview/docs/knowledge/crewai_coding_skills.txt)
+- [docs/knowledge/eda_rating_prediction_checklist.txt](C:/Users/vansh/OneDrive/Desktop/AgentReview/docs/knowledge/eda_rating_prediction_checklist.txt)
 
+## Environment
 
+Default local run with Ollama:
 
-### Technical Architecture 
+```bash
+ollama pull llama3.2:1b
+python main.py --quiet
+```
 
+Optional:
 
+```bash
+COHERE_API_KEY=your_cohere_key
+GROQ_API_KEY=your_groq_key
+SERPER_API_KEY=your_serper_key
+```
 
-The pipeline utilizes a multi-agent orchestration strategy to ensure data integrity and prevent hallucinations. By leveraging local computation, it maintains privacy and provides a cost-effective alternative to cloud-based LLM services.
+The project can use Cohere embeddings for semantic review RAG:
 
+```python
+from crewai.rag.embeddings.providers.cohere.types import CohereProviderSpec
 
+embedding_model: CohereProviderSpec = {
+    "provider": "cohere",
+    "config": {
+        "api_key": "your-api-key",
+        "model_name": "embed-english-v3.0"
+    }
+}
+```
 
-###### LLM Model: Qwen2.5:7b (Running locally via Ollama at http://localhost:11434)
+The default model in this repo is now `ollama/llama3.2:1b`, which matches the lighter Ollama setup commonly available on local machines.
 
-###### 
+You can place keys in `.env` or [docs/.env](C:/Users/vansh/OneDrive/Desktop/AgentReview/docs/.env).
 
-###### Embedding Model: BAAI/bge-small-en-v1.5
+This repo defaults to the tool-based grounding path because it is more reliable in local Windows setups than CrewAI knowledge indexing.
 
-###### 
+## Run
 
-###### Orchestration: CrewAI (Sequential Process)
+```bash
+python main.py --crew baseline
+python crew.py --crew collaborative
+python crew.py --crew hierarchical
+```
 
-###### 
+Example:
 
-###### Inference Settings: Temperature 0.0 (Strictly deterministic)
+```bash
+python main.py --crew collaborative --user-id nnImk681KaRqUVHlSfZjGQ --item-id -7GjicSH_rM8JeZGCXGcUg
+```
 
+Useful flags:
 
+- `--user-id`
+- `--item-id`
+- `--model`
+- `--output`
+- `--quiet`
 
-## **Multi-Agent Workflow**
+## Output
 
+```json
+{
+  "stars": 4.0,
+  "review": "Grounded short review.",
+  "eda_summary": "Concise explanation of the predictive signals."
+}
+```
 
+## References
 
-The analysis is performed by three specialized agents defined in config/agents.yaml that operate in a sequential chain:
-
-
-
-* User Profiler: Responsible for retrieving historical data and reviewing habits for a specific user. It synthesizes past review sentiments and category preferences.
-
-
-
-* Item Analyst: Conducts a detailed features analysis of the target business, including its attributes (e.g., WiFi, Parking), categories, and location data.
-
-
-
-* Prediction Modeler: Synthesizes the outputs from the Profiler and Analyst to predict the star rating and generate a realistic review text that matches the user's established persona.
-
-
-
-### **Custom Tools**
-
-
-
-To guarantee accuracy, the system uses high-precision tools implemented in crew.py for exact data retrieval:
-
-
-
-* search\_user\_data: Performs an exact ID match against the user dataset to retrieve raw JSON records.
-
-
-
-* search\_item\_data: Retrieves exact business features by item ID.
-
-
-
-* search\_review\_data: Filters historical review data to provide the LLM with grounded examples of past interactions.
-
-
-
-### Output:
-
-The final prediction is saved to report.json in the root directory. This file contains the predicted stars and text fields, formatted for automated evaluation and MSE (Mean Squared Error) calculation.
+- [CrewAI Quickstart](https://docs.crewai.com/en/quickstart)
+- [CrewAI Tools Overview](https://docs.crewai.com/tools/overview)
+- [CrewAI RAG Tool](https://docs.crewai.com/ar/tools/ai-ml/ragtool)
 

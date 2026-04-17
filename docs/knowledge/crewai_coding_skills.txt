@@ -1,0 +1,20 @@
+CrewAI coding-agent workflow notes for this lab
+
+This project includes multiple CrewAI topologies:
+- baseline sequential crew
+- sequential collaborative single-task crew
+- hierarchical crew with a manager LLM
+
+Recommended reference:
+Building CrewAI Agents & Flows with Coding Agent Skills
+https://docs.crewai.com/en/quickstart
+
+Usage guidance:
+1. Prefer grounded local tools for dataset evidence.
+2. Add external search only as supplemental context when credentials are configured.
+3. Use Process.sequential when you want explicit handoff order or one lead agent to coordinate a shared task.
+4. Use Process.hierarchical when a manager should decide which specialist handles which step.
+5. Give agents domain knowledge so they reason with shared EDA language instead of free-form improvisation.
+
+For this repository, the important implementation rule is simple:
+Local Yelp subset evidence is primary. Web context is optional and should never override local facts.

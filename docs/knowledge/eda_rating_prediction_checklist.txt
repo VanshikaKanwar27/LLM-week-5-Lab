@@ -1,0 +1,23 @@
+Exploratory Data Analysis (EDA) Checklist For Rating Prediction
+
+1. Start with base rates.
+- Check the user's average stars and review count.
+- Check the item's stars and review count.
+- Treat both as anchors before inferring anything from style.
+
+2. Compare user preference to item profile.
+- Look for category fit, pricing fit, service expectations, and common review themes.
+- Strong matches usually support ratings near the user's base rate or the item's base rate.
+- Strong mismatches can justify moving the prediction down.
+
+3. Use semantic review retrieval to find analogs.
+- Search for reviews that look similar in tone, complaint type, praise type, cuisine, or service context.
+- Prefer semantically relevant review evidence over generic intuition.
+
+4. Watch for sparse data.
+- Few reviews, low metadata coverage, or weak semantic matches should reduce confidence.
+- When evidence is thin, stay closer to stable priors rather than making extreme predictions.
+
+5. Draft realistic output.
+- The review should sound plausible for the retrieved user behavior and the retrieved business context.
+- Avoid invented sensory details or claims that were never supported by the retrieved evidence.
