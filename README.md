@@ -1,5 +1,3 @@
-# 611421420-LLM-Lab2
-
 ## AgentReview Crew: Yelp Rating Prediction with CrewAI
 
 This project is a multi-agent CrewAI system built to predict Yelp-style star ratings and generate short review text using user history, business metadata, and review evidence. It includes multiple crew execution patterns, stronger custom agents, index reuse, EDA-oriented knowledge, and CrewAI Flow integration.
