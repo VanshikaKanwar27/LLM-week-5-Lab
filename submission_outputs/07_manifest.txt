@@ -1,0 +1,20 @@
+﻿{
+  "flow_id": "407622b2-dc1f-45e7-9dc7-49cc9fab2210",
+  "user_id": "nnImk681KaRqUVHlSfZjGQ",
+  "item_id": "-7GjicSH_rM8JeZGCXGcUg",
+  "model": "openai/minimaxai/minimax-m2.7",
+  "final_output_path": "C:\\Users\\vansh\\OneDrive\\Desktop\\AgentReview\\report.json",
+  "artifacts_dir": "C:\\Users\\vansh\\OneDrive\\Desktop\\AgentReview\\report_artifacts",
+  "selected_stages": [
+    "baseline",
+    "collaborative",
+    "hierarchical"
+  ],
+  "stages": {
+    "baseline": "baseline.json",
+    "collaborative": "collaborative.json",
+    "hierarchical": "hierarchical.json",
+    "final": "final.json"
+  }
+}
+

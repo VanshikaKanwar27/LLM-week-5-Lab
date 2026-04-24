@@ -1,0 +1,12 @@
+.crewai_storage/
+__pycache__/
+*.pyc
+*.pyo
+desktop.ini
+.env
+docs/.env
+report_artifacts/
+output.txt
+repport.json
+.crewai_write_test
+data/.venv/

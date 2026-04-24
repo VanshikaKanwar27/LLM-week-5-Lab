@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
@@ -13,9 +14,8 @@ from typing import Any, Iterable
 from crewai import Agent, Crew, Process, Task
 from crewai.knowledge.source.json_knowledge_source import JSONKnowledgeSource
 from crewai.knowledge.source.text_file_knowledge_source import TextFileKnowledgeSource
-from crewai.rag.embeddings.providers.cohere.types import CohereProviderSpec
 from crewai.tools import BaseTool
-from crewai_tools import RagTool, SerperDevTool
+from crewai_tools import JSONSearchTool, RagTool, SerperDevTool
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
@@ -26,34 +26,100 @@ KNOWLEDGE_DIR = ROOT / "docs" / "knowledge"
 STORAGE_DIR = ROOT / ".crewai_storage"
 GENERATED_DIR = STORAGE_DIR / "generated"
 DEFAULT_OUTPUT = ROOT / "report.json"
-DEFAULT_MODEL = os.getenv("AGENT_REVIEW_MODEL") or os.getenv("MODEL") or "ollama/llama3.2:1b"
 DEFAULT_USER_ID = "nnImk681KaRqUVHlSfZjGQ"
 DEFAULT_ITEM_ID = "-7GjicSH_rM8JeZGCXGcUg"
 MAX_RAG_REVIEWS = 500
 MAX_REVIEW_TEXT_CHARS = 420
 MAX_LOCAL_REVIEW_SNIPPET_CHARS = 220
+DEFAULT_LOCAL_MODEL = "ollama/llama3.2:1b"
+DEFAULT_NVIDIA_MODEL = "minimaxai/minimax-m2.7"
+PROFESSOR_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+PROFESSOR_USER_COLLECTION = "benchmark_true_fresh_index_Filtered_User_1"
+PROFESSOR_ITEM_COLLECTION = "benchmark_true_fresh_index_Filtered_Item_1"
+PROFESSOR_REVIEW_COLLECTION = "benchmark_true_fresh_index_Filtered_Review_1"
+
+
+def _load_project_env() -> None:
+    load_dotenv(ROOT / ".env", override=False)
+    load_dotenv(ROOT / "docs" / ".env", override=False)
+
+
+def _resolve_default_model() -> str:
+    _load_project_env()
+    explicit_model = os.getenv("AGENT_REVIEW_MODEL") or os.getenv("MODEL")
+    if explicit_model:
+        return explicit_model
+
+    llm_provider = (os.getenv("LLM_PROVIDER") or "ollama").strip().lower()
+    if llm_provider == "nvidia":
+        return f"openai/{os.getenv('NVIDIA_MODEL_NAME') or DEFAULT_NVIDIA_MODEL}"
+    return DEFAULT_LOCAL_MODEL
+
+
+DEFAULT_MODEL = _resolve_default_model()
+
+
+def _resolve_chroma_storage_dir() -> Path:
+    override = os.getenv("AGENT_REVIEW_CHROMA_DIR", "").strip()
+    candidates: list[Path] = []
+    if override:
+        candidates.append(Path(override))
+
+    local_appdata = os.getenv("LOCALAPPDATA", "").strip()
+    if local_appdata:
+        candidates.append(Path(local_appdata) / "Rag_Crew_Profiler")
+
+    candidates.append(STORAGE_DIR)
+
+    for candidate in candidates:
+        if (candidate / "chroma.sqlite3").exists():
+            return candidate
+
+    return candidates[0]
+
+
+def _configure_model_provider(model: str) -> str:
+    llm_provider = (os.getenv("LLM_PROVIDER") or "").strip().lower()
+    explicit_model = os.getenv("AGENT_REVIEW_MODEL") or os.getenv("MODEL")
+
+    if model.startswith("ollama/") or llm_provider == "ollama":
+        return model
+
+    if llm_provider == "nvidia" and not explicit_model:
+        resolved = f"openai/{os.getenv('NVIDIA_MODEL_NAME') or DEFAULT_NVIDIA_MODEL}"
+        os.environ["OPENAI_API_BASE"] = os.getenv("NVIDIA_API_BASE", "https://integrate.api.nvidia.com/v1")
+        os.environ["OPENAI_API_KEY"] = os.getenv("NVIDIA_API_KEY", "")
+        return resolved
+
+    if model.startswith("openai/") and os.getenv("NVIDIA_API_KEY") and os.getenv("NVIDIA_API_BASE"):
+        os.environ.setdefault("OPENAI_API_BASE", os.getenv("NVIDIA_API_BASE", "https://integrate.api.nvidia.com/v1"))
+        os.environ.setdefault("OPENAI_API_KEY", os.getenv("NVIDIA_API_KEY", ""))
+
+    return model
 
 
 def configure_environment(model: str) -> None:
-    load_dotenv(ROOT / ".env", override=False)
-    load_dotenv(ROOT / "docs" / ".env", override=False)
+    _load_project_env()
+    model = _configure_model_provider(model)
     os.environ["MODEL"] = model
     STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
-    os.environ["LOCALAPPDATA"] = str(STORAGE_DIR)
-    os.environ["APPDATA"] = str(STORAGE_DIR)
+    chroma_storage_dir = _resolve_chroma_storage_dir()
+    if chroma_storage_dir == STORAGE_DIR:
+        os.environ["LOCALAPPDATA"] = str(STORAGE_DIR)
+        os.environ["APPDATA"] = str(STORAGE_DIR)
     os.environ.setdefault("OTEL_SDK_DISABLED", "true")
     os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
+    os.environ.setdefault("CREWAI_TRACING_ENABLED", "false")
     os.environ.setdefault("CHROMA_TELEMETRY", "False")
 
     try:
         from crewai.memory.storage import kickoff_task_outputs_storage as kickoff_storage
         from crewai.utilities import paths as crewai_paths
-        import sqlite3
 
         def _workspace_db_storage_path() -> str:
-            STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-            return str(STORAGE_DIR)
+            chroma_storage_dir.mkdir(parents=True, exist_ok=True)
+            return str(chroma_storage_dir)
 
         crewai_paths.db_storage_path = _workspace_db_storage_path
         kickoff_storage.db_storage_path = _workspace_db_storage_path
@@ -131,8 +197,98 @@ def _shorten_text(value: str, max_chars: int) -> str:
     return shortened
 
 
+def _normalize_text_field(value: Any) -> str:
+    if isinstance(value, list):
+        return " ".join(str(part).strip() for part in value if str(part).strip())
+    return str(value or "").strip()
+
+
+def _ascii_clean_text(value: str) -> str:
+    replacements = {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2010": "-",
+        "\u2011": "-",
+        "\u2212": "-",
+        "\u2026": "...",
+        "\u2248": "~",
+        "\u00a0": " ",
+        "â€™": "'",
+        "â€˜": "'",
+        'â€œ': '"',
+        'â€\x9d': '"',
+        "â€‘": "-",
+        "â€“": "-",
+        "â€”": "-",
+        "âˆ’": "-",
+        "â‰ˆ": "~",
+        "â€¦": "...",
+    }
+    cleaned = value
+    for source, target in replacements.items():
+        cleaned = cleaned.replace(source, target)
+    cleaned = cleaned.encode("ascii", "ignore").decode("ascii")
+    return " ".join(cleaned.split()).strip()
+
+
+def _is_irrelevant_generated_review(review: str) -> bool:
+    normalized = " ".join(review.lower().split())
+    banned_signals = (
+        "this tool",
+        "search feature",
+        "user profile information",
+        "mobile devices",
+        "different searches",
+        "desired item",
+        "lag issues",
+        "preferences across different searches",
+    )
+    return any(signal in normalized for signal in banned_signals)
+
+
+def _sanitize_generated_text(review: str, eda_summary: str, fallback: dict[str, Any]) -> tuple[str, str]:
+    review = _ascii_clean_text(_shorten_text(review, 320))
+    eda_summary = _ascii_clean_text(_shorten_text(eda_summary, 220))
+
+    if not review or _is_irrelevant_generated_review(review):
+        review = _ascii_clean_text(str(fallback["review"]))
+
+    if not eda_summary or _is_irrelevant_generated_review(eda_summary):
+        eda_summary = _ascii_clean_text(str(fallback["eda_summary"]))
+
+    return review, eda_summary
+
+
 def _normalize_candidate_paths(preferred: Path, *fallbacks: Path) -> tuple[Path, ...]:
     return (preferred, *fallbacks)
+
+
+def _has_local_professor_embedding_cache() -> bool:
+    cache_roots = [
+        Path(os.getenv("HF_HOME", "")).expanduser(),
+        Path(os.getenv("HUGGINGFACE_HUB_CACHE", "")).expanduser(),
+        Path.home() / ".cache" / "huggingface" / "hub",
+        Path.home() / ".cache" / "torch" / "sentence_transformers",
+    ]
+    model_hints = (
+        "bge-small-en-v1.5",
+        "BAAI",
+        "models--BAAI--bge-small-en-v1.5",
+    )
+    for root in cache_roots:
+        if not str(root).strip() or not root.exists():
+            continue
+        try:
+            for path in root.rglob("*"):
+                if path.is_dir() and any(hint in path.name for hint in model_hints):
+                    return True
+        except OSError:
+            continue
+    return False
 
 
 def ensure_lab_dataset_files() -> dict[str, Path]:
@@ -247,10 +403,44 @@ def materialize_review_corpus(review_jsonl: Path) -> Path:
     return corpus_path
 
 
-def build_embedding_model() -> CohereProviderSpec | None:
+def build_runtime_collection_name(base_name: str, source_path: Path, embedder: dict[str, Any] | None = None) -> str:
+    embedder_label = json.dumps(embedder, sort_keys=True) if embedder is not None else "no-embedder"
+    source_stamp = f"{source_path.resolve()}:{source_path.stat().st_mtime_ns}:{embedder_label}"
+    return f"{base_name}_{_hash_text(source_stamp)}"
+
+
+def build_professor_embedding_config() -> dict[str, Any]:
+    return {
+        "provider": "sentence-transformer",
+        "config": {
+            "model_name": PROFESSOR_EMBEDDING_MODEL,
+        },
+    }
+
+
+def build_embedding_model() -> dict[str, Any] | None:
+    preference = (os.getenv("AGENT_REVIEW_EMBEDDINGS") or "auto").strip().lower()
+    if preference in {"none", "off", "disabled", "disable"}:
+        return None
+    if preference in {"bge", "bge-small", "sentence-transformer", "sentence-transformers", "local"}:
+        return build_professor_embedding_config()
+    if preference == "auto":
+        api_key = os.getenv("COHERE_API_KEY") or os.getenv("EMBEDDINGS_COHERE_API_KEY")
+        if api_key:
+            return {
+                "provider": "cohere",
+                "config": {
+                    "api_key": api_key,
+                    "model_name": "embed-english-v3.0",
+                },
+            }
+        if _has_local_professor_embedding_cache():
+            return build_professor_embedding_config()
+        return None
+
     api_key = os.getenv("COHERE_API_KEY") or os.getenv("EMBEDDINGS_COHERE_API_KEY")
     if not api_key:
-        return None
+        return build_professor_embedding_config()
 
     return {
         "provider": "cohere",
@@ -454,18 +644,166 @@ class ReviewLookupV2Tool(BaseTool):
         return compact_json(trimmed)
 
 
-def build_knowledge_sources(embedder: CohereProviderSpec | None) -> list:
-    return []
+def build_knowledge_sources(embedder: dict[str, Any] | None) -> list:
+    if (os.getenv("AGENT_REVIEW_DISABLE_KNOWLEDGE") or "").strip().lower() in {"1", "true", "yes", "on"}:
+        return []
+    dataset_paths = ensure_lab_dataset_files()
+
+    knowledge_sources: list = []
+    json_sources = [
+        ("subset_user_profiles", dataset_paths["user"]),
+        ("subset_item_profiles", dataset_paths["item"]),
+    ]
+    text_sources = [
+        ("eda_playbook", KNOWLEDGE_DIR / "eda_playbook.txt"),
+        ("crewai_coding_skills", KNOWLEDGE_DIR / "crewai_coding_skills.txt"),
+        ("eda_rating_prediction_checklist", KNOWLEDGE_DIR / "eda_rating_prediction_checklist.txt"),
+    ]
+
+    try:
+        for collection_name, jsonl_path in json_sources:
+            materialized_path = materialize_json_knowledge_file(jsonl_path)
+            knowledge_sources.append(
+                JSONKnowledgeSource(
+                    file_paths=[materialized_path],
+                    collection_name=build_runtime_collection_name(collection_name, materialized_path, embedder),
+                )
+            )
+
+        for collection_name, text_path in text_sources:
+            if not text_path.exists():
+                continue
+            knowledge_sources.append(
+                TextFileKnowledgeSource(
+                    file_paths=[text_path],
+                    collection_name=build_runtime_collection_name(collection_name, text_path, embedder),
+                )
+            )
+    except Exception:
+        return []
+
+    return knowledge_sources
 
 
-def build_review_rag_tool(embedder: CohereProviderSpec | None) -> BaseTool:
+def _resolve_structured_dataset_path(*candidates: str) -> Path | None:
+    for candidate in candidates:
+        path = DATA_DIR / candidate
+        if path.exists():
+            return path
+    return None
+
+
+def _collection_exists(collection_name: str) -> bool:
+    db_file = _resolve_chroma_storage_dir() / "chroma.sqlite3"
+    if not db_file.exists():
+        return False
+
+    try:
+        with sqlite3.connect(db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM collections WHERE name = ?", (collection_name,))
+            return cursor.fetchone() is not None
+    except sqlite3.Error:
+        return False
+
+
+def _build_cached_json_search_tool(
+    *,
+    collection_name: str,
+    fallback_dataset: Path | None,
+    name: str,
+    description: str,
+) -> BaseTool | None:
+    config = {"embedding_model": build_professor_embedding_config()}
+    collection_exists = _collection_exists(collection_name)
+
+    try:
+        if collection_exists:
+            tool = JSONSearchTool(collection_name=collection_name, config=config)
+            try:
+                from crewai_tools.tools.json_search_tool.json_search_tool import FixedJSONSearchToolSchema
+
+                tool.args_schema = FixedJSONSearchToolSchema
+            except Exception:
+                pass
+        elif fallback_dataset is not None:
+            tool = JSONSearchTool(
+                json_path=str(fallback_dataset),
+                collection_name=collection_name,
+                config=config,
+            )
+        else:
+            return None
+    except Exception:
+        return None
+
+    tool.name = name
+    tool.description = description
+    return tool
+
+
+def build_professor_cached_tools() -> list[BaseTool]:
+    if not _has_local_professor_embedding_cache():
+        return []
+
+    user_dataset = _resolve_structured_dataset_path("subset_user.jsonl", "user_subset.json")
+    item_dataset = _resolve_structured_dataset_path("subset_item.jsonl", "item_subset.json")
+    review_dataset = _resolve_structured_dataset_path("subset_review.jsonl", "review_subset.json", "test_review_subset.json")
+
+    candidates = [
+        _build_cached_json_search_tool(
+            collection_name=PROFESSOR_USER_COLLECTION,
+            fallback_dataset=user_dataset,
+            name="search_user_profile_data",
+            description=(
+                "Semantic user-profile search using the professor-aligned BAAI/bge-small-en-v1.5 embedding setup. "
+                "Pass a natural-language search_query such as 'What are the review habits and average stars for user {user_id}?'"
+            ),
+        ),
+        _build_cached_json_search_tool(
+            collection_name=PROFESSOR_ITEM_COLLECTION,
+            fallback_dataset=item_dataset,
+            name="search_restaurant_feature_data",
+            description=(
+                "Semantic business search using the professor-aligned cached Chroma collections when available. "
+                "Pass a natural-language search_query describing the business, rating, categories, or attributes you need."
+            ),
+        ),
+        _build_cached_json_search_tool(
+            collection_name=PROFESSOR_REVIEW_COLLECTION,
+            fallback_dataset=review_dataset,
+            name="search_historical_reviews_data",
+            description=(
+                "Semantic historical-review search using the professor-aligned embedding model. "
+                "Pass a natural-language search_query about the user's tone, business quality, or specific review evidence."
+            ),
+        ),
+    ]
+
+    return [tool for tool in candidates if tool is not None]
+
+
+def build_review_rag_tool(embedder: dict[str, Any] | None) -> BaseTool:
     if embedder is None:
         return ReviewLookupV2Tool()
 
+    professor_review_tool = _build_cached_json_search_tool(
+        collection_name=PROFESSOR_REVIEW_COLLECTION,
+        fallback_dataset=None,
+        name="semantic_review_rag",
+        description=(
+            "Professor-aligned semantic retriever over the cached historical review collection. "
+            "Use a natural-language search_query and prefer the exact Yelp item_id when it helps ground the request."
+        ),
+    )
+    if professor_review_tool is not None:
+        return professor_review_tool
+
     dataset_paths = ensure_lab_dataset_files()
     review_corpus_path = materialize_review_corpus(dataset_paths["review"])
+    embedder_label = json.dumps(embedder, sort_keys=True)
     collection_hash = _hash_text(
-        f"{review_corpus_path}:{review_corpus_path.stat().st_mtime_ns}:embed-english-v3.0"
+        f"{review_corpus_path}:{review_corpus_path.stat().st_mtime_ns}:{embedder_label}"
     )
     collection_name = f"subset_review_rag_{collection_hash}"
     marker_path = GENERATED_DIR / f"{collection_name}.indexed"
@@ -511,7 +849,8 @@ def build_agents(
         ItemKnowledgeLookupTool(),
         review_rag_tool,
     ]
-    research_tools = [*exact_profile_tools, *build_external_research_tools()]
+    professor_cached_tools = build_professor_cached_tools()
+    research_tools = [*exact_profile_tools, *professor_cached_tools, *build_external_research_tools()]
 
     agents = {
         "researcher": Agent(
@@ -524,11 +863,11 @@ def build_agents(
                 "You are meticulous about grounding. You pull exact profile facts from the lab datasets first, then "
                 "support them with semantic review evidence when behavior or tone needs more context."
             ),
-            tools=exact_profile_tools,
+            tools=research_tools,
             knowledge_sources=knowledge_sources,
             verbose=verbose,
             allow_delegation=False,
-            max_iter=6,
+            max_iter=4,
             llm=model,
         ),
         "eda_strategist": Agent(
@@ -544,7 +883,7 @@ def build_agents(
             knowledge_sources=knowledge_sources,
             verbose=verbose,
             allow_delegation=False,
-            max_iter=4,
+            max_iter=3,
             llm=model,
         ),
         "prediction_analyst": Agent(
@@ -559,7 +898,7 @@ def build_agents(
             knowledge_sources=knowledge_sources,
             verbose=verbose,
             allow_delegation=False,
-            max_iter=4,
+            max_iter=3,
             llm=model,
         ),
         "quality_reviewer": Agent(
@@ -574,7 +913,7 @@ def build_agents(
             knowledge_sources=knowledge_sources,
             verbose=verbose,
             allow_delegation=False,
-            max_iter=3,
+            max_iter=2,
             llm=model,
         ),
         "orchestrator": Agent(
@@ -591,7 +930,7 @@ def build_agents(
             knowledge_sources=knowledge_sources,
             verbose=verbose,
             allow_delegation=True,
-            max_iter=6,
+            max_iter=4,
             llm=model,
         ),
     }
@@ -611,7 +950,7 @@ def build_agents(
             knowledge_sources=knowledge_sources,
             verbose=verbose,
             allow_delegation=False,
-            max_iter=4,
+            max_iter=2,
             llm=model,
         )
 
@@ -632,26 +971,26 @@ def build_baseline_sequential_crew(model: str, verbose: bool = True) -> Crew:
                 "subset_item.jsonl as knowledge, and use the review lookup tool on subset_review.jsonl to find "
                 "similar reviews or historically relevant examples. When calling any review tool, pass the exact "
                 "item_id value `{item_id}`. If a tool field is unknown, pass an empty string instead of omitting it. Keep tool usage compact: 1 user lookup, 1 item "
-                "lookup, and at most 2 review retrieval calls with at most 3 results each. Return a memo under 180 words."
+                "lookup, and at most 2 review retrieval calls with at most 3 results each. Return a memo under 220 words."
             ),
-            expected_output="A compact grounded memo under 180 words with user signals, item signals, and up to 3 review clues.",
+            expected_output="A grounded memo under 220 words with user signals, item signals, and up to 3 review clues.",
             agent=agents["researcher"],
         ),
         Task(
             description=(
                 "Perform exploratory data analysis on the grounded memo. Identify rating tendencies, sparse-data risks, "
-                "feature matches or mismatches, and the most predictive signals for this user-item pair. Keep the answer under 120 words."
+                "feature matches or mismatches, and the most predictive signals for this user-item pair. Keep the answer under 90 words."
             ),
-            expected_output="A concise EDA brief under 120 words with key signals, caveats, and confidence notes.",
+            expected_output="A concise EDA brief under 90 words with key signals, caveats, and confidence notes.",
             agent=agents["eda_strategist"],
         ),
         Task(
             description=(
                 "Produce the final strict JSON with keys 'stars', 'review', and 'eda_summary'. The answer must be faithful "
-                "to the retrieved evidence and EDA brief. Keep 'review' under 45 words and 'eda_summary' under 35 words."
+                "to the retrieved evidence and EDA brief. Keep 'review' under 80 words and 'eda_summary' under 70 words."
             ),
             expected_output=(
-                '{"stars": 4.0, "review": "Grounded short review.", "eda_summary": "Concise explanation of the predictive signals."}'
+                '{"stars": 4.0, "review": "Grounded review with concrete evidence and tradeoffs.", "eda_summary": "Concise but specific explanation of the strongest predictive signals and confidence limits."}'
             ),
             agent=agents["prediction_analyst"],
             output_file=str(DEFAULT_OUTPUT),
@@ -685,10 +1024,10 @@ def build_collaborative_sequential_crew(model: str, verbose: bool = True) -> Cre
             "EDA, prediction, quality, and optional internet research specialists as needed. Always pass the exact "
             "Yelp item_id `{item_id}` to tools. If a tool field is unknown, pass an empty string instead of omitting it. Keep all intermediate "
             "work compact. Return strict JSON with keys 'stars', 'review', and 'eda_summary'. Keep 'review' under "
-            "45 words and 'eda_summary' under 35 words."
+            "80 words and 'eda_summary' under 70 words."
         ),
         expected_output=(
-            '{"stars": 4.0, "review": "Grounded short review.", "eda_summary": "Concise explanation of the predictive signals."}'
+            '{"stars": 4.0, "review": "Grounded review with concrete evidence and tradeoffs.", "eda_summary": "Concise but specific explanation of the strongest predictive signals and confidence limits."}'
         ),
         agent=agents["orchestrator"],
         output_file=str(DEFAULT_OUTPUT),
@@ -739,33 +1078,33 @@ def build_hierarchical_crew(model: str, verbose: bool = True) -> Crew:
                 "evidence for user {user_id} and item {item_id}. Keep the memo tightly grounded in subset_user.jsonl, "
                 "subset_item.jsonl, and subset_review.jsonl. Use the review lookup tool for compact retrieval. Always pass the exact item_id `{item_id}` to tools. "
                 "If a tool field is unknown, pass an empty string instead of omitting it. "
-                "Keep it under 160 words and use at most 3 review results."
+                "Keep it under 220 words and use at most 3 review results."
             ),
-            expected_output="A grounded retrieval brief under 160 words with exact facts plus up to 3 review clues.",
+            expected_output="A grounded retrieval brief under 220 words with exact facts plus up to 3 review clues.",
             agent=agents["researcher"],
         ),
         Task(
             description=(
                 "Analyze the retrieval brief with an EDA mindset. Identify likely rating drivers, user-business fit, "
-                "outliers, uncertainty, and the expected rating range. Keep the answer under 120 words."
+                "outliers, uncertainty, and the expected rating range. Keep the answer under 90 words."
             ),
-            expected_output="An EDA memo under 120 words with signal ranking and confidence notes.",
+            expected_output="An EDA memo under 90 words with signal ranking and confidence notes.",
             agent=agents["eda_strategist"],
         ),
         Task(
             description=(
-                "Draft a prediction using the retrieval brief and EDA memo. Return JSON with keys 'stars' and 'review'. Keep the review under 45 words."
+                "Draft a prediction using the retrieval brief and EDA memo. Return JSON with keys 'stars' and 'review'. Keep the review under 80 words."
             ),
-            expected_output='{"stars": 4.0, "review": "Grounded short review."}',
+            expected_output='{"stars": 4.0, "review": "Grounded review with concrete evidence and tradeoffs."}',
             agent=agents["prediction_analyst"],
         ),
         Task(
             description=(
                 "Validate the prediction and expand it into the final strict JSON with keys 'stars', 'review', and "
-                "'eda_summary'. Correct weak grounding or malformed formatting if necessary. Keep 'eda_summary' under 35 words."
+                "'eda_summary'. Correct weak grounding or malformed formatting if necessary. Keep 'eda_summary' under 70 words."
             ),
             expected_output=(
-                '{"stars": 4.0, "review": "Grounded short review.", "eda_summary": "Concise explanation of the predictive signals."}'
+                '{"stars": 4.0, "review": "Grounded review with concrete evidence and tradeoffs.", "eda_summary": "Concise but specific explanation of the strongest predictive signals and confidence limits."}'
             ),
             agent=agents["quality_reviewer"],
             output_file=str(DEFAULT_OUTPUT),
@@ -803,9 +1142,8 @@ def normalize_result(result: Any) -> dict[str, Any]:
     else:
         raise TypeError(f"Unsupported result type: {type(result).__name__}")
 
-    review = payload.get("review", "")
-    if isinstance(review, list):
-        payload["review"] = " ".join(str(part).strip() for part in review if str(part).strip())
+    payload["review"] = _normalize_text_field(payload.get("review", ""))
+    payload["eda_summary"] = _normalize_text_field(payload.get("eda_summary", ""))
     return payload
 
 
@@ -994,13 +1332,9 @@ def finalize_payload(payload: dict[str, Any] | None, user_id: str, item_id: str)
 
     stars = round(min(5.0, max(1.0, stars)), 1)
 
-    review = str(payload.get("review", "")).strip()
-    if not review:
-        review = fallback["review"]
-
-    eda_summary = str(payload.get("eda_summary", "")).strip()
-    if not eda_summary:
-        eda_summary = fallback["eda_summary"]
+    review = _normalize_text_field(payload.get("review", ""))
+    eda_summary = _normalize_text_field(payload.get("eda_summary", ""))
+    review, eda_summary = _sanitize_generated_text(review, eda_summary, fallback)
 
     return {
         "stars": stars,

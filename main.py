@@ -20,12 +20,12 @@ def main() -> int:
         if args.engine == "deterministic":
             payload = generate_deterministic_payload(args.user_id, args.item_id)
         else:
-            crew = build_selected_crew(args.crew, model=args.model, verbose=not args.quiet)
-            result = crew.kickoff(inputs={"user_id": args.user_id, "item_id": args.item_id})
             try:
+                crew = build_selected_crew(args.crew, model=args.model, verbose=not args.quiet)
+                result = crew.kickoff(inputs={"user_id": args.user_id, "item_id": args.item_id})
                 payload = normalize_result(result)
             except Exception:
-                payload = build_fallback_payload(args.user_id, args.item_id)
+                payload = generate_deterministic_payload(args.user_id, args.item_id)
             payload = finalize_payload(payload, args.user_id, args.item_id)
 
         output_path = Path(args.output).resolve()

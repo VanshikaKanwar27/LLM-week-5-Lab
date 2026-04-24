@@ -7,6 +7,7 @@ requires-python = ">=3.13"
 dependencies = [
     "crewai",
     "crewai-tools",
+    "cohere",
     "langchain-community",
     "sentence-transformers",
     "python-dotenv",
