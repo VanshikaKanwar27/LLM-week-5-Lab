@@ -1,5 +1,11 @@
-{
-  "stars": 3.8,
-  "review": "Double Decker seems like a decent fit for me. The bars vibe works, but the lower house rating keeps it short of excellent.",
-  "eda_summary": "user 3.96, recent 3.90, item 3.0"
-}
+﻿[
+  {
+    "user_id": "nnImk681KaRqUVHlSfZjGQ",
+    "item_id": "-7GjicSH_rM8JeZGCXGcUg",
+    "crew_mode": "hierarchical",
+    "predicted": {
+      "stars": 3.8,
+      "review": "Double Decker seems like a decent fit for me. The bars vibe works, but the lower house rating keeps it short of excellent."
+    }
+  }
+]

@@ -540,6 +540,26 @@ def _extract_categories(record: dict[str, Any]) -> list[str]:
     return [part.strip() for part in str(record.get("categories", "")).split(",") if part.strip()]
 
 
+def build_submission_record(
+    predicted: dict[str, Any],
+    *,
+    user_id: str,
+    item_id: str,
+    crew_mode: str,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "user_id": user_id,
+            "item_id": item_id,
+            "crew_mode": crew_mode,
+            "predicted": {
+                "stars": float(predicted.get("stars", 0.0)),
+                "review": _ascii_clean_text(str(predicted.get("review", "")).strip()),
+            },
+        }
+    ]
+
+
 def _safe_float(value: Any, default: float) -> float:
     try:
         return float(value)
@@ -1410,8 +1430,22 @@ def _write_debug_response(raw: str) -> None:
     (GENERATED_DIR / "last_raw_response.txt").write_text(raw, encoding="utf-8")
 
 
-def write_report(payload: dict[str, Any], output_path: Path) -> None:
-    output_path.write_text(compact_json(payload) + "\n", encoding="utf-8")
+def write_report(
+    payload: dict[str, Any],
+    output_path: Path,
+    *,
+    user_id: str,
+    item_id: str,
+    crew_mode: str,
+) -> list[dict[str, Any]]:
+    wrapped_payload = build_submission_record(
+        payload,
+        user_id=user_id,
+        item_id=item_id,
+        crew_mode=crew_mode,
+    )
+    output_path.write_text(compact_json(wrapped_payload) + "\n", encoding="utf-8")
+    return wrapped_payload
 
 
 def build_parser(description: str) -> argparse.ArgumentParser:

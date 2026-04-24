@@ -179,12 +179,18 @@ class AgentReviewFlow(Flow[AgentReviewFlowState]):
             self.state.item_id,
         )
         output_path = Path(self.state.output).resolve()
-        write_report(final_payload, output_path)
+        report_payload = write_report(
+            final_payload,
+            output_path,
+            user_id=self.state.user_id,
+            item_id=self.state.item_id,
+            crew_mode="flow",
+        )
         self.state.output = str(output_path)
-        self.state.final_payload = final_payload
+        self.state.final_payload = report_payload[0]["predicted"]
         self._write_stage_output("final", final_payload)
         self._write_manifest()
-        return final_payload
+        return report_payload
 
 
 def build_flow_parser() -> argparse.ArgumentParser:

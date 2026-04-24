@@ -29,9 +29,15 @@ def main() -> int:
             payload = finalize_payload(payload, args.user_id, args.item_id)
 
         output_path = Path(args.output).resolve()
-        write_report(payload, output_path)
+        report_payload = write_report(
+            payload,
+            output_path,
+            user_id=args.user_id,
+            item_id=args.item_id,
+            crew_mode="deterministic" if args.engine == "deterministic" else args.crew,
+        )
 
-        print(compact_json(payload))
+        print(compact_json(report_payload))
         print(f"Saved report to: {output_path}")
         return 0
     except Exception as exc:

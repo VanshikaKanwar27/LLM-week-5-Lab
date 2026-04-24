@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from lab_project import (
+    build_submission_record,
     build_parser,
     build_selected_crew,
     compact_json,
@@ -19,7 +20,16 @@ def main() -> int:
             payload = finalize_payload(normalize_result(result), args.user_id, args.item_id)
         except Exception:
             payload = generate_deterministic_payload(args.user_id, args.item_id)
-        print(compact_json(payload))
+        print(
+            compact_json(
+                build_submission_record(
+                    payload,
+                    user_id=args.user_id,
+                    item_id=args.item_id,
+                    crew_mode=args.crew,
+                )
+            )
+        )
         return 0
     except Exception as exc:
         message = str(exc)

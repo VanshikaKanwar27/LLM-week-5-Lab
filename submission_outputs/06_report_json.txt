@@ -1,5 +1,11 @@
-{
-  "stars": 3.5,
-  "review": "Carlos, an 18-year Elite contributor with 1,107 reviews (avg 3.96) and a high useful-vote ratio (~4.4 per review), offers a measured, articulate perspective. The item's metadata and actual review could not be retrieved, limiting a nuanced assessment. His history suggests a rating likely below the platform mean.",
-  "eda_summary": "Strongest predictive signals: Carlos's long tenure (18 y), elite status, 3.96 avg rating, and high useful-vote ratio (~4.4 per review) indicate a calibrated, below-mean rating style. Critical limitation: item metadata"
-}
+﻿[
+  {
+    "user_id": "nnImk681KaRqUVHlSfZjGQ",
+    "item_id": "-7GjicSH_rM8JeZGCXGcUg",
+    "crew_mode": "flow",
+    "predicted": {
+      "stars": 3.5,
+      "review": "Carlos, an 18-year Elite contributor with 1,107 reviews (avg 3.96) and a high useful-vote ratio (~4.4 per review), offers a measured, articulate perspective. The item's metadata and actual review could not be retrieved, limiting a nuanced assessment. His history suggests a rating likely below the platform mean."
+    }
+  }
+]
